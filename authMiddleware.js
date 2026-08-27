@@ -7,15 +7,46 @@
 
 
 
- module.exports.isLoggedIn = (req, res, next) => {
+ module.exports.isLoggedIn = async(req, res, next) => {
+
      if (!req.isAuthenticated()) {
          req.session.redirectTo = req.originalUrl;
+
          req.flash("error", "You must be signed in first!");
+
          return res.redirect("/login");
      }
+
+     // Fresh user data from database
+     const user = await User.findById(req.user._id);
+
+     if (!user) {
+         req.flash("error", "User account not found!");
+
+         return res.redirect("/login");
+     }
+
+     // Block check
+     if (user.blocked) {
+
+         req.logout(function(err) {
+             if (err) {
+                 return next(err);
+             }
+
+             req.flash(
+                 "error",
+                 "Your account has been blocked by admin."
+             );
+
+             return res.redirect("/login");
+         });
+
+         return;
+     }
+
      next();
  };
-
 
  module.exports.saveReditectUrl = (req, res, next) => {
      if (req.session.redirectTo) {

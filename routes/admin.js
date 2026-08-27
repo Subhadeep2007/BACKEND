@@ -5,7 +5,7 @@ const { isAdmin, isLoggedIn } = require("../authMiddleware.js");
 const Listing = require("../models/listing");
 const Booking = require("../models/booking");
 
-
+const BlockedUser = require("../models/blockedUser");
 // ADMIN DASHBOARD
 router.get("/dashboard", isLoggedIn, isAdmin, async(req, res) => {
     const hosts = await User.find({ role: "host" });
@@ -15,8 +15,34 @@ router.get("/dashboard", isLoggedIn, isAdmin, async(req, res) => {
 
 // BLOCK HOST
 router.put("/block/:id", isLoggedIn, isAdmin, async(req, res) => {
-    await User.findByIdAndUpdate(req.params.id, { blocked: true });
-    req.flash("success", "Host account blocked");
+
+    const user = await User.findById(req.params.id);
+
+    if (!user) {
+        req.flash("error", "User not found");
+        return res.redirect("/admin/dashboard");
+    }
+
+    // Current account block
+    user.blocked = true;
+    await user.save();
+
+    // Permanent email blacklist
+    await BlockedUser.findOneAndUpdate({
+        email: user.email.toLowerCase()
+    }, {
+        email: user.email.toLowerCase(),
+        reason: "Blocked by admin"
+    }, {
+        upsert: true,
+        new: true
+    });
+
+    req.flash(
+        "success",
+        "Host permanently blocked"
+    );
+
     res.redirect("/admin/dashboard");
 });
 

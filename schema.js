@@ -104,8 +104,10 @@ const signupSchema = Joi.object({
         .email({ tlds: { allow: false } })
         .required(),
 
-    role: Joi.string().valid("customer", "host", "admin").default("customer")
-
+    role: Joi.string().valid("customer", "host", "admin").default("customer"),
+    adminKey: Joi.string()
+        .allow("")
+        .optional()
 });
 
 

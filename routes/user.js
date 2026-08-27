@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const passport = require("passport");
-
+const BlockedUser = require("../models/blockedUser");
 const User = require("../models/user");
 const sendEmail = require("../utils/sendEmail");
 const { userSchema, forgotSchema, resetSchema, otpSchema, signupSchema } = require("../schema");
@@ -58,7 +58,17 @@ const validatePassword = (req, res, next) => {
     }
     next();
 };
+const validateForgot = (req, res, next) => {
 
+    const { error } = forgotSchema.validate(req.body);
+
+    if (error) {
+        req.flash("error", error.details[0].message);
+        return res.redirect("back");
+    }
+
+    next();
+};
 //  SIGNUP 
 
 // signup page
@@ -69,51 +79,127 @@ router.get("/signup", (req, res) => {
 // send OTP
 router.post("/signup", validateSignup, async(req, res) => {
     try {
-        const { username, email, role } = req.body;
-        req.session.signupRole = role || "customer";
+        console.log("1. SIGNUP BODY:", req.body);
 
-        if (!email) {
-            req.flash("error", "Email is required");
+        const { username, email, role, adminKey } = req.body;
+
+        // ADMIN CHECK
+        if (role === "admin") {
+
+            console.log("2. Admin signup started");
+
+            const lowerEmail = email.toLowerCase();
+            const adminEmail = process.env.ADMIN_EMAIL.toLowerCase();
+
+            console.log(
+                "3. Email check:",
+                lowerEmail === adminEmail
+            );
+
+            console.log(
+                "4. Secret check:",
+                adminKey === process.env.ADMIN_SECRET
+            );
+
+            // ADMIN EMAIL CHECK
+            if (lowerEmail !== adminEmail) {
+                req.flash(
+                    "error",
+                    "This email is not authorized for admin!"
+                );
+
+                return res.redirect("/signup");
+            }
+
+            // ADMIN SECRET KEY CHECK
+            if (adminKey !== process.env.ADMIN_SECRET) {
+                req.flash(
+                    "error",
+                    "Invalid admin secret key!"
+                );
+
+                return res.redirect("/signup");
+            }
+        }
+
+        console.log("5. Admin check passed");
+
+        const lowerEmail = email.toLowerCase();
+        // CHECK BLOCKED EMAIL
+        const blockedUser = await BlockedUser.findOne({
+            email: lowerEmail
+        });
+
+        if (blockedUser) {
+            req.flash(
+                "error",
+                "This account has been permanently blocked."
+            );
+
             return res.redirect("/signup");
         }
 
-        const lowerEmail = email.toLowerCase();
+        // CHECK EXISTING USER
+        const existingUser = await User.findOne({
+            email: lowerEmail
+        });
 
-        const existingUser = await User.findOne({ email: lowerEmail });
+        console.log("6. Existing user checked");
+
         if (existingUser) {
             req.flash("error", "Email already registered");
             return res.redirect("/signup");
         }
 
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        // GENERATE OTP
+        const otp = Math.floor(
+            100000 + Math.random() * 900000
+        ).toString();
 
-        // store temporary data in session
+        // SAVE ROLE
+        req.session.signupRole = role || "customer";
+
+        // SAVE TEMP USER
         req.session.tempUser = {
             username: username.trim(),
             email: lowerEmail,
-
             otp: otp,
             otpExpire: Date.now() + 300000
         };
 
+        console.log("7. Sending OTP...");
+
+        // SEND EMAIL
         await sendEmail(
             lowerEmail,
             "Email Verification OTP",
             `<h2>Your Verification OTP</h2>
-             <h1>${otp}</h1>
-             <p>Valid for 5 minutes</p>`
+            <h1>${otp}</h1>
+            <p>Valid for 5 minutes</p>`
         );
 
+        console.log("8. OTP SENT SUCCESSFULLY");
+
         req.flash("success", "OTP sent to your email");
-        res.redirect(`/verify-email?email=${lowerEmail}`);
+
+        console.log("9. Redirecting to verify page");
+
+        return res.redirect(
+            `/verify-email?email=${lowerEmail}`
+        );
 
     } catch (err) {
-        console.log(err);
-        req.flash("error", "Something went wrong");
-        res.redirect("/signup");
+
+        console.log("SIGNUP ERROR:", err);
+
+        req.flash(
+            "error",
+            "Something went wrong"
+        );
+
+        return res.redirect("/signup");
     }
 });
-
 
 //  VERIFY EMAIL 
 
@@ -272,10 +358,19 @@ router.post("/login", saveReditectUrl, (req, res, next) => {
         // store temporary login session
         req.session.tempLoginUser = user._id;
 
-        // DO NOT LOGIN YET
-        req.flash("success", "OTP sent to your email");
-        res.redirect("/login-otp");
+        req.session.save((err) => {
 
+            if (err) {
+                console.log("SESSION SAVE ERROR:", err);
+
+                req.flash("error", "Something went wrong");
+                return res.redirect("/login");
+            }
+
+            req.flash("success", "OTP sent to your email");
+
+            return res.redirect("/login-otp");
+        });
 
     })(req, res, next);
 });
@@ -406,7 +501,7 @@ router.get("/forgot", (req, res) => {
     res.render("users/forgotPassword");
 });
 
-router.post("/forgot", validateSignup, async(req, res) => {
+router.post("/forgot", validateForgot, async(req, res) => {
     const { email } = req.body;
     const lowerEmail = email.toLowerCase();
 
