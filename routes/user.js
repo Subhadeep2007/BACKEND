@@ -535,7 +535,7 @@ router.post("/forgot", validateForgot, async(req, res) => {
 //  VERIFY RESET OTP 
 
 router.get("/verify-reset", (req, res) => {
-    res.render("users/verifyResetOtp", { email: req.query.email });
+    res.render("users/verifyResetotp", { email: req.query.email });
 });
 
 router.post("/verify-reset", validateOtp, async(req, res) => {
